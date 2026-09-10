@@ -154,16 +154,31 @@ class Command(BaseCommand):
                 )
             )
 
-        # ── 4. Upsert ──────────────────────────────────────────────────
+        # ── 4. Deduplicate by opis_id (last-wins, matches CSV order) ──────
+        #
+        # 568 OPIS IDs appear more than once in the source CSV (1,473 extra
+        # rows) — same station, different name variants (e.g. "PILOT #1243"
+        # vs "PILOT TRAVEL CENTER #1243").  We collapse them here so we make
+        # exactly len(deduped) DB round-trips rather than len(rows).
+        deduped: dict[int, dict] = {r["opis_id"]: r for r in rows}  # last-wins
+        collapsed = len(rows) - len(deduped)
+        if collapsed:
+            self.stdout.write(
+                f"  Collapsed {collapsed} duplicate opis_id rows "
+                f"({len(rows)} → {len(deduped)} unique stations)."
+            )
+
+        # ── 5. Upsert ──────────────────────────────────────────────────
         if dry_run:
             self.stdout.write("DRY RUN complete — skipping DB writes.")
             return
 
-        created, updated = self._upsert_stations(rows, geocode_cache)
+        created, updated = self._upsert_stations(list(deduped.values()), geocode_cache)
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nDone. {created} stations created, {updated} updated. "
-                f"({skipped_canadian} Canadian rows excluded)"
+                f"({skipped_canadian} Canadian rows excluded, "
+                f"{collapsed} duplicate opis_id rows collapsed)"
             )
         )
 
@@ -331,7 +346,10 @@ class Command(BaseCommand):
         geocode_cache: dict[str, dict | None],
     ) -> tuple[int, int]:
         """
-        Upsert all rows into FuelStation, keyed on opis_id.
+        Upsert ``rows`` into FuelStation, keyed on opis_id.
+
+        Caller is responsible for deduplicating by opis_id before this call
+        (see handle()); each row here triggers exactly one DB round-trip.
 
         Returns (created_count, updated_count).
         """

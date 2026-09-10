@@ -232,3 +232,35 @@ class TestLoadFuelStationsCommand:
             _run_command(FIXTURE_CSV, geocache, dry_run=True)
 
         assert FuelStation.objects.count() == 0
+
+    @patch("apps.ingestion.management.commands.load_fuel_stations.time.sleep")
+    @patch("apps.ingestion.management.commands.load_fuel_stations.Nominatim")
+    def test_duplicate_opis_id_collapses_to_one_row(self, mock_nominatim_cls, mock_sleep):
+        """
+        A CSV with two rows sharing the same opis_id must produce exactly
+        one FuelStation row (last-wins on name).
+
+        Mirrors the real dataset where 568 OPIS IDs appear multiple times
+        with name variants, e.g. 'PILOT #1243' vs 'PILOT TRAVEL CENTER #1243'.
+        """
+        dupe_csv_content = (
+            "OPIS Truckstop ID,Truckstop Name,Address,City,State,Rack ID,Retail Price\r\n"
+            '20,PILOT TRAVEL CENTER #1243,"I-8, EXIT 119 & SR-85",Gila Bend,AZ,930,3.899\r\n'
+            '20,PILOT #1243,"I-8, EXIT 119 & SR-85",Gila Bend,AZ,930,3.899\r\n'
+        )
+        loc = MagicMock()
+        loc.latitude, loc.longitude = 32.9478, -112.7183
+        mock_geo = MagicMock()
+        mock_geo.geocode.return_value = loc
+        mock_nominatim_cls.return_value = mock_geo
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            csv_path = tmpdir_path / "dupe.csv"
+            csv_path.write_text(dupe_csv_content, encoding="utf-8")
+            geocache = tmpdir_path / "geocode_cache.json"
+            _run_command(csv_path, geocache)
+
+        assert FuelStation.objects.filter(opis_id=20).count() == 1
+        station = FuelStation.objects.get(opis_id=20)
+        assert station.name == "PILOT #1243"  # last row in file wins
