@@ -1,0 +1,9 @@
+-r base.txt
+
+# Testing
+pytest==8.3.5
+pytest-django==4.10.0
+pytest-cov==6.1.0
+pytest-httpx==0.35.0          # mock httpx calls (OSRM stubs)
+factory-boy==3.3.3
+Faker==37.3.0

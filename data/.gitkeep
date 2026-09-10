@@ -1,0 +1,2 @@
+# Drop your fuel-price CSV here (e.g., fuel-prices.csv).
+# The file itself is excluded from git via .gitignore.

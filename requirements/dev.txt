@@ -1,0 +1,9 @@
+-r base.txt
+
+# Dev / debug
+django-debug-toolbar==5.2.0
+ipython==9.3.0
+
+# Linting & formatting
+ruff==0.11.13
+pre-commit==4.2.0
