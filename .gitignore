@@ -52,6 +52,7 @@ Thumbs.db
 # ── Data files (keep raw CSV out of git; committed fixtures are fine) ─────────
 data/*.csv
 data/*.tsv
+data/cache/
 !data/.gitkeep
 
 # ── Misc ────────────────────────────────────────────────────────────────────
