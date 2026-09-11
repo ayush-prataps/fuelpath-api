@@ -239,7 +239,7 @@ pytest --cov=apps --cov-report=html
 | 1 | Vehicle starts with a **full tank** | Simplifies the DP initial state |
 | 2 | **500-mile range**, **10 mpg** → 50-gallon tank | Configurable via env vars |
 | 3 | Fuel-stop selection is a **shortest-path / DP problem** over a station DAG, not greedy "cheapest in range" | Greedy is not globally optimal when cheap stations appear slightly out of order along the route |
-| 4 | Station-to-route matching uses a **spatial index** (KD-tree or R-tree) over the OSRM geometry, with a configurable corridor width (default 10 km / ~6 mi) | Avoids scanning all 8 k+ stations per request |
+| 4 | Station-to-route matching uses a **spatial index** (KD-tree or R-tree) over the OSRM geometry, with a configurable corridor width (default **10 miles ≈ 16,093.4 m**) | Avoids scanning all 8 k+ stations per request |
 | 5 | **OSRM** responses are cached in Redis keyed by SHA-256(origin\|destination), TTL 6 h | OSRM calls are expensive; most repeated city-pairs reuse the same route |
 | 6 | Geocoding the CSV is an **offline, pre-ingestion step** | Nominatim rate-limits to 1 req/s; 8 k records ≈ 2.5 h offline, unacceptable on the hot path |
 | 7 | The API accepts free-text location strings; **geocoding the user's start/finish** happens on the hot path (Nominatim or a commercial geocoder) | Adds latency — a future caching layer is noted in the roadmap |
