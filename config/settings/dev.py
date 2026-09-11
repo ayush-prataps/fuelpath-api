@@ -23,3 +23,24 @@ except ImportError:
 
 # Simpler email backend for local dev
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+# ── Cache: upgrade to Redis in dev if REDIS_URL is set ───────────────────────
+import environ as _environ
+_env = _environ.Env()
+if _redis_url := _env.str("REDIS_URL", default=""):
+    try:
+        import django_redis  # noqa: F401
+        CACHES = {
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": _redis_url,
+                "OPTIONS": {
+                    "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                    "SOCKET_CONNECT_TIMEOUT": 5,
+                    "SOCKET_TIMEOUT": 5,
+                },
+                "KEY_PREFIX": "fuelpath",
+            }
+        }
+    except ImportError:
+        pass  # django-redis not installed — stick with LocMemCache
