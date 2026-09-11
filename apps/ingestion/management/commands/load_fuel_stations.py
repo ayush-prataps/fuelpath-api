@@ -135,7 +135,7 @@ class Command(BaseCommand):
         geocode_cache = self._load_geocache(geocache_path)
 
         geocode_cache, geocode_stats = self._geocode_pairs(
-            city_state_pairs, geocode_cache, delay
+            city_state_pairs, geocode_cache, delay, geocache_path
         )
         self._save_geocache(geocache_path, geocode_cache)
 
@@ -286,9 +286,14 @@ class Command(BaseCommand):
         pairs: set[tuple[str, str]],
         cache: dict[str, dict | None],
         delay: float,
+        cache_path: Path | None = None,
+        flush_every: int = 100,
     ) -> tuple[dict, dict]:
         """
         Geocode all pairs not already in the cache via Nominatim.
+
+        Flushes the cache to ``cache_path`` every ``flush_every`` new lookups
+        so a crash loses at most flush_every * delay seconds of work.
 
         Returns (updated_cache, stats_dict).
         stats_dict keys: hits, new, failed, failed_pairs.
@@ -307,8 +312,9 @@ class Command(BaseCommand):
 
         uncached = [p for p in sorted(pairs) if f"{p[0]},{p[1]}" not in cache]
         stats["hits"] = len(pairs) - len(uncached)
+        total_uncached = len(uncached)
 
-        for city, state in uncached:
+        for i, (city, state) in enumerate(uncached, start=1):
             key = f"{city},{state}"
             query = f"{city}, {state}, USA"
             try:
@@ -331,6 +337,13 @@ class Command(BaseCommand):
                 stats["failed"] += 1
                 stats["failed_pairs"].append((city, state))
                 logger.warning("Geocoding error for %s: %s", query, exc)
+
+            # Periodic flush — crash-safe checkpoint
+            if cache_path and i % flush_every == 0:
+                self._save_geocache(cache_path, cache)
+                self.stdout.write(
+                    f"  [{i}/{total_uncached}] geocoded … last: {key}"
+                )
 
             time.sleep(delay)
 

@@ -102,16 +102,12 @@ DATABASES = {
     }
 }
 
-# ── Cache (Redis) ─────────────────────────────────────────────────────────────
+# ── Cache ────────────────────────────────────────────────────────────────────
+# Default: in-process LocMemCache — works without any external service.
+# Override in dev.py / prod.py with django-redis when Redis is available.
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": env("REDIS_URL", default="redis://localhost:6379/0"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "SOCKET_CONNECT_TIMEOUT": 5,
-            "SOCKET_TIMEOUT": 5,
-        },
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "KEY_PREFIX": "fuelpath",
     }
 }
