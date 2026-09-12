@@ -28,12 +28,11 @@ from typing import Any
 import numpy as np
 from scipy.spatial import KDTree
 
-from apps.optimizer.types import Station
+from apps.optimizer.types import METERS_PER_MILE, Station
 
 logger = logging.getLogger(__name__)
 
 # Constants
-METERS_PER_MILE: float = 1_609.344
 EARTH_RADIUS_MILES: float = 3_958.761  # 6,371,000 m / 1,609.344
 
 # Default corridor half-width: 10 miles on each side of the route (≈ 16,093.4 m).

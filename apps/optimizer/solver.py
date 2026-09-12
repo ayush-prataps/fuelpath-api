@@ -52,11 +52,9 @@ import logging
 import math
 from typing import NamedTuple
 
-from .types import FuelStop, OptimizationResult, Station, VehicleConfig
+from .types import METERS_PER_MILE, FuelStop, OptimizationResult, Station, VehicleConfig
 
 logger = logging.getLogger(__name__)
-
-_MILES_TO_M = 1_609.344
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +71,8 @@ class InfeasibleRouteError(Exception):
         self.gap_start_m = gap_start_m
         self.gap_end_m = gap_end_m
         super().__init__(
-            f"No fuel station found between {gap_start_m / _MILES_TO_M:.1f} mi "
-            f"and {gap_end_m / _MILES_TO_M:.1f} mi along the route."
+            f"No fuel station found between {gap_start_m / METERS_PER_MILE:.1f} mi "
+            f"and {gap_end_m / METERS_PER_MILE:.1f} mi along the route."
         )
 
 
@@ -132,7 +130,7 @@ def _collapse_colocated(stations: list[Station]) -> list[_Node]:
 
 def _leg_gallons(leg_m: float, mpg: float) -> float:
     """Gallons consumed driving ``leg_m`` metres at ``mpg`` miles per gallon."""
-    return (leg_m / _MILES_TO_M) / mpg
+    return (leg_m / METERS_PER_MILE) / mpg
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +177,7 @@ def optimise(
     candidate_count = len(stations)
     logger.info(
         "Optimising route: %.1f mi, %d candidate stations, range %.0f mi",
-        route_distance_m / _MILES_TO_M,
+        route_distance_m / METERS_PER_MILE,
         candidate_count,
         vehicle.range_miles,
     )

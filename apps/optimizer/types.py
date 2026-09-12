@@ -10,6 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# Canonical conversion factor for the whole optimizer package.
+# Import this instead of repeating the literal in spatial.py / solver.py.
+METERS_PER_MILE: float = 1_609.344
+
 
 @dataclass(frozen=True)
 class Station:
@@ -33,7 +37,7 @@ class Station:
     @property
     def distance_along_route_miles(self) -> float:
         """Distance along the route in miles (derived from distance_along_route_m)."""
-        return self.distance_along_route_m / 1_609.344
+        return self.distance_along_route_m / METERS_PER_MILE
 
 
 @dataclass(frozen=True)
@@ -46,7 +50,7 @@ class VehicleConfig:
     @property
     def range_m(self) -> float:
         """Vehicle range in metres."""
-        return self.range_miles * 1_609.344
+        return self.range_miles * METERS_PER_MILE
 
     @property
     def tank_gallons(self) -> float:
