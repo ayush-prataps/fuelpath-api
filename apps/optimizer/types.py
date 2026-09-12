@@ -30,6 +30,11 @@ class Station:
     retail_price_usd: float            # USD per gallon
     distance_along_route_m: float = 0.0  # set by spatial matcher
 
+    @property
+    def distance_along_route_miles(self) -> float:
+        """Distance along the route in miles (derived from distance_along_route_m)."""
+        return self.distance_along_route_m / 1_609.344
+
 
 @dataclass(frozen=True)
 class VehicleConfig:

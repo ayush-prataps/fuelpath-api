@@ -17,6 +17,9 @@ django-extensions==3.2.3
 # GDAL==3.10.3
 # django.contrib.gis is enabled in settings when GDAL is available.
 
+# Spatial indexing & scientific math
+scipy==1.18.1
+
 # HTTP / networking
 httpx==0.28.1                 # async-capable HTTP client for OSRM calls
 tenacity==9.1.2               # retry logic for external service calls
