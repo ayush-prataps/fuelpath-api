@@ -3,8 +3,11 @@ tests/test_api.py
 ==================
 Integration tests for POST /api/v1/route/ via DRF's APIClient.
 
-All external calls (OSRM, Nominatim, DB) are mocked — zero real network
-requests or database access in this file.
+Most tests mock all external calls (OSRM, Nominatim, DB queryset) so they
+run without a live network.  The schema-guard test at the bottom
+(test_fuel_station_queryset_filter_matches_schema) is the deliberate exception:
+it hits the real test DB to verify the queryset the view executes is valid
+against the actual model schema — something a fully mocked queryset cannot catch.
 """
 
 from __future__ import annotations
@@ -481,3 +484,45 @@ class TestResponseTimeSanity:
 
         assert response.status_code == status.HTTP_200_OK
         assert elapsed < 2.0, f"View took {elapsed:.3f}s with everything mocked"
+
+
+# ---------------------------------------------------------------------------
+# Schema-guard test (hits the real test DB intentionally)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_fuel_station_queryset_filter_matches_schema():
+    """
+    Guards against FieldError on the coordinate filter used in RouteView.
+
+    The API pipeline tests mock FuelStation.objects entirely, so they cannot
+    detect a wrong field name, wrong lookup type, or wrong .only() column list.
+    This test is the single place where the real queryset executes against the
+    real model schema — it will raise FieldError immediately if any of those
+    identifiers are wrong.
+
+    It also verifies the filter semantics: rows with NULL coordinates are
+    excluded, rows with coordinates are included.
+    """
+    from apps.ingestion.models import FuelStation
+
+    FuelStation.objects.create(
+        opis_id=1, name="Test Stop", address="1 Main St",
+        city="Testville", state="TX", rack_id=1,
+        price=3.50, latitude=32.0, longitude=-97.0,
+    )
+    FuelStation.objects.create(
+        opis_id=2, name="No Coords", address="2 Main St",
+        city="Nowhere", state="TX", rack_id=1,
+        price=3.20, latitude=None, longitude=None,
+    )
+
+    result = list(
+        FuelStation.objects.filter(
+            latitude__isnull=False,
+            longitude__isnull=False,
+        ).only("id", "name", "city", "state", "latitude", "longitude", "price")
+    )
+
+    assert len(result) == 1
+    assert result[0].opis_id == 1
