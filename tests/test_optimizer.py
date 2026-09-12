@@ -254,3 +254,48 @@ class TestOptimiseSolver:
         assert isinstance(result, OptimizationResult)
         assert len(result.fuel_stops) > 0
 
+    def test_partial_fill_preferred_over_full_tank(self, station_factory):
+        """
+        Buying exactly the fuel needed to reach the next stop (lazy fill) is
+        strictly cheaper than topping up to a full tank when the next stop is
+        cheaper per gallon.
+
+        Setup:
+          - Vehicle: 500-mile range, 10 mpg (50-gallon tank).
+          - Station A @ 100mi, $4.00/gal  ← expensive
+          - Station B @ 300mi, $2.00/gal  ← cheap, reachable directly from start
+          - Route: 600mi
+
+        Full-tank strategy at A: buy 50 gal @ $4.00 = $200, then drive to end.
+        Lazy-fill strategy: skip A, stop at B (300mi from start, within 500mi
+        range), buy exactly 300mi worth = 30 gal @ $2.00 = $60, arrive at end.
+
+        The solver must:
+          1. Not stop at A at all.
+          2. Stop at B and purchase exactly 30 gallons (enough for 300mi),
+             not 50 (a full tank).
+          3. Report total_fuel_cost_usd = $60.00.
+        """
+        vehicle = VehicleConfig(range_miles=500, mpg=10)
+        a = station_factory(distance_along_route_m=km(100), retail_price_usd=4.00)
+        b = station_factory(distance_along_route_m=km(300), retail_price_usd=2.00)
+
+        result = optimise(
+            route_distance_m=km(600),
+            stations=[a, b],
+            vehicle=vehicle,
+        )
+
+        stop_ids = [s.station.id for s in result.fuel_stops]
+        assert a.id not in stop_ids, "Solver must not stop at expensive A"
+        assert b.id in stop_ids, "Solver must stop at cheap B"
+
+        b_stop = next(s for s in result.fuel_stops if s.station.id == b.id)
+        # Lazy fill: buy exactly enough for the remaining 300 miles (600 - 300)
+        expected_gallons = 300 / vehicle.mpg  # = 30.0
+        assert b_stop.gallons == pytest.approx(expected_gallons, rel=1e-6), (
+            f"Expected partial fill of {expected_gallons} gal, got {b_stop.gallons:.4f}"
+        )
+        assert result.total_fuel_cost_usd == pytest.approx(
+            expected_gallons * 2.00, rel=1e-6
+        )  # $60.00
