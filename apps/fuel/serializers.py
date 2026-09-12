@@ -23,36 +23,40 @@ class RouteRequestSerializer(serializers.Serializer):
     )
 
     def validate_start(self, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError("start must be a non-empty location string.")
+        return stripped
 
     def validate_finish(self, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError("finish must be a non-empty location string.")
+        return stripped
 
 
 class FuelStopSerializer(serializers.Serializer):
     """A single optimised fuel stop in the response."""
 
-    name = serializers.CharField()
+    sequence = serializers.IntegerField(help_text="1-based stop number along the route.")
+    station_name = serializers.CharField()
     city = serializers.CharField()
     state = serializers.CharField(max_length=2)
     latitude = serializers.FloatField()
     longitude = serializers.FloatField()
-    retail_price_usd = serializers.FloatField()
-    gallons = serializers.FloatField(
-        help_text="Gallons to purchase at this stop."
-    )
-    cost_usd = serializers.FloatField(
-        help_text="Cost of fuel purchased at this stop."
-    )
+    distance_from_start_miles = serializers.FloatField()
+    price_per_gallon = serializers.FloatField()
+    gallons_purchased = serializers.FloatField()
+    cost_usd = serializers.FloatField()
 
 
 class RouteResponseSerializer(serializers.Serializer):
     """Shape of the successful API response (documentation only)."""
 
     route = serializers.DictField(
-        child=serializers.JSONField(),
-        help_text="GeoJSON FeatureCollection containing the driving route.",
+        help_text="Driving route summary and GeoJSON geometry.",
+    )
+    fuel = serializers.DictField(
+        help_text="Vehicle config and fuel totals.",
     )
     fuel_stops = FuelStopSerializer(many=True)
-    total_gallons = serializers.FloatField()
-    total_fuel_cost_usd = serializers.FloatField()
