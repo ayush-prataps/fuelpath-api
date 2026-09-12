@@ -21,7 +21,7 @@ dynamic programming (topological order = route order, so pure O(N^2) DP):
 
   Edge (i -> j): exists iff dist(j) - dist(i) <= range_m
   Edge weight:   cost of fuel purchased at node i to cover leg i->j exactly
-                 (lazy fill: buy only what is needed to reach j)
+                 (buy exactly enough fuel at i to reach selected downstream station j)
 
 Pre-processing
 --------------
@@ -36,12 +36,13 @@ its starting full tank; no stops are needed and total cost is $0.00.
 This can look like a bug without the explanation -- the driver departs with
 a full tank and arrives without needing to refuel.
 
-Filling strategy
-----------------
-At each stop we buy *exactly* the fuel needed to reach the next stop (lazy /
-minimum-fill strategy).  Buying more than needed at stop i when a cheaper
-stop j is within range would only increase total cost, so the DP naturally
-finds the optimal fill amount by choosing the best successor node.
+Fuel strategy
+-------------
+For each candidate transition i -> j, the solver assumes the vehicle purchases
+exactly enough fuel at station i to cover that selected leg. j may be any
+later reachable station, not necessarily the next station in route order.
+This allows the optimizer to skip expensive intermediate stations and carry
+cheaper fuel forward.
 
 This module has zero Django imports; inject settings from the call-site.
 """

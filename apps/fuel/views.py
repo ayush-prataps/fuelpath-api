@@ -176,8 +176,25 @@ class RouteView(APIView):
             for fs in db_stations
         ]
 
+        # Extract (lon, lat) coordinate list from route_result.geojson LineString geometry
+        features = route_result.geojson.get("features", [])
+        if features and "geometry" in features[0]:
+            coords_raw = features[0]["geometry"].get("coordinates", [])
+        elif "geometry" in route_result.geojson:
+            coords_raw = route_result.geojson["geometry"].get("coordinates", [])
+        elif "coordinates" in route_result.geojson:
+            coords_raw = route_result.geojson.get("coordinates", [])
+        else:
+            coords_raw = []
+
+        route_coords = [
+            (float(c[0]), float(c[1]))
+            for c in coords_raw
+            if isinstance(c, (list, tuple)) and len(c) >= 2
+        ]
+
         matched_stations = match_stations_to_route(
-            route_geojson=route_result.geojson,
+            route_coords=route_coords,
             stations=optimizer_stations,
         )
 

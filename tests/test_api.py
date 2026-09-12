@@ -526,3 +526,132 @@ def test_fuel_station_queryset_filter_matches_schema():
 
     assert len(result) == 1
     assert result[0].opis_id == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-boundary integration test: spatial + solver wired together, no mocks
+# ---------------------------------------------------------------------------
+
+def test_spatial_solver_pipeline_wires_correctly():
+    """
+    Verifies that match_stations_to_route and optimise are called with
+    correctly typed and named arguments end-to-end.
+
+    This is the only test that does NOT mock the spatial or solver boundary.
+    Every other test mocks match_stations_to_route entirely, meaning a wrong
+    keyword argument name or incorrect coordinate format would produce zero
+    failures in the mocked suite despite being a TypeError at runtime.
+
+    Approach: construct a synthetic GeoJSON route (Chicago → Houston, ~950 miles),
+    extract (lon, lat) coordinate tuples from its LineString geometry (matching
+    RouteView's call site), pass to match_stations_to_route, and verify that the
+    matched stations feed into optimise returning a valid OptimizationResult.
+    """
+    from apps.optimizer.solver import optimise
+    from apps.optimizer.spatial import match_stations_to_route
+    from apps.optimizer.types import OptimizationResult, Station, VehicleConfig
+
+    # Synthetic multi-point route: Chicago → Houston (OSRM [lon, lat] order)
+    route_geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        [-87.6298, 41.8781],   # Chicago
+                        [-89.5, 39.0],         # IL (~222 mi)
+                        [-91.5312, 36.4953],   # TN (~427 mi)
+                        [-93.5, 33.0],         # AR (~693 mi)
+                        [-95.3698, 29.7604],   # Houston (~941 mi)
+                    ],
+                },
+                "properties": {},
+            }
+        ],
+    }
+
+    # Extract (lon, lat) coordinates from GeoJSON LineString geometry
+    geometry = route_geojson["features"][0]["geometry"]
+    route_coords = [
+        (float(c[0]), float(c[1]))
+        for c in geometry["coordinates"]
+    ]
+
+    station_1 = Station(
+        id=101,
+        name="Stop 1 Springfield",
+        city="Springfield",
+        state="IL",
+        latitude=39.0,
+        longitude=-89.5,
+        retail_price_usd=3.20,
+    )
+    station_2 = Station(
+        id=102,
+        name="Stop 2 Memphis",
+        city="Memphis",
+        state="TN",
+        latitude=36.4953,
+        longitude=-91.5312,
+        retail_price_usd=3.10,
+    )
+    station_3 = Station(
+        id=103,
+        name="Stop 3 Hope",
+        city="Hope",
+        state="AR",
+        latitude=33.0,
+        longitude=-93.5,
+        retail_price_usd=3.00,
+    )
+    station_off_route = Station(
+        id=104,
+        name="Off Route Stop",
+        city="Off City",
+        state="LA",
+        latitude=30.0,
+        longitude=-89.0,   # ~180 miles off route
+        retail_price_usd=2.50,
+    )
+
+    # --- Call match_stations_to_route with the REAL signature: route_coords (list[tuple]) ---
+    matched = match_stations_to_route(
+        route_coords=route_coords,
+        stations=[station_1, station_2, station_3, station_off_route],
+    )
+
+    # In-corridor stations must be matched; off-route station excluded
+    matched_ids = {s.id for s in matched}
+    assert station_1.id in matched_ids, "Station 1 should be within corridor"
+    assert station_2.id in matched_ids, "Station 2 should be within corridor"
+    assert station_3.id in matched_ids, "Station 3 should be within corridor"
+    assert station_off_route.id not in matched_ids, "Station ~180 miles off route must be excluded"
+
+    # Must be ordered by distance along route ascending
+    distances = [s.distance_along_route_m for s in matched]
+    assert distances == sorted(distances)
+
+    # --- Feed into optimise with total route distance ---
+    route_distance_m = 950 * 1_609.344
+    vehicle = VehicleConfig(range_miles=500, mpg=10)
+
+    result = optimise(
+        route_distance_m=route_distance_m,
+        stations=matched,
+        vehicle=vehicle,
+    )
+
+    # Structural assertions — solver must return a valid result, not raise
+    assert isinstance(result, OptimizationResult)
+    assert len(result.fuel_stops) >= 1, "950mi route with 500mi range must require stops"
+    assert result.total_fuel_cost_usd > 0
+    assert result.total_gallons > 0
+    assert result.total_gallons == pytest.approx(
+        sum(s.gallons for s in result.fuel_stops), rel=1e-6
+    )
+    assert result.total_fuel_cost_usd == pytest.approx(
+        sum(s.cost_usd for s in result.fuel_stops), rel=1e-6
+    )
+
