@@ -1,7 +1,6 @@
 # fuelpath-api
 
-> A REST API that returns the cost-optimal driving route with refuelling stops
-> for any start → finish pair within the contiguous USA.
+> A REST API that returns the cost-optimal driving route with refuelling stops for any start → finish pair within the contiguous USA.
 
 ---
 
@@ -26,10 +25,9 @@ the API returns:
 
 | Field | Description |
 |---|---|
-| `route` | Driving route as a GeoJSON FeatureCollection |
+| `route` | Driving route summary and GeoJSON `FeatureCollection` |
+| `fuel` | Vehicle efficiency, range, total gallons, and total cost |
 | `fuel_stops` | Cost-optimal refuelling sequence (≤ 500-mile vehicle range) |
-| `total_gallons` | Total fuel consumed (assumes 10 mpg) |
-| `total_fuel_cost_usd` | Total cost at retail prices |
 
 Fuel price data comes from a provided CSV of ~8,150 US truck stops (city/state
 only — geocoded offline before serving).
@@ -65,7 +63,7 @@ POST /api/v1/route/
         │
         ▼
   RouteView.post()
-        │  geocode start/finish → (lon, lat)
+        │  geocode start/finish → (lat, lon)
         ▼
   apps.routing.service.get_route()
         │  ← Django cache look-aside (LocMemCache default, Redis opt-in; 6 h TTL)
@@ -96,7 +94,7 @@ POST /api/v1/route/
 ### 1 — Clone and create a virtual environment
 
 ```bash
-git clone https://github.com/your-org/fuelpath-api.git
+git clone https://github.com/ayush-prataps/fuelpath-api.git
 cd fuelpath-api
 python3 -m venv .venv
 source .venv/bin/activate
@@ -150,53 +148,101 @@ The API is available at `http://localhost:8000/api/v1/`.
 
 ### `POST /api/v1/route/`
 
+Calculates the optimal fuel stops for driving between any two locations within the contiguous United States.
+
 **Request**
 
 ```json
 {
-  "start":  "Chicago, IL",
-  "finish": "Houston, TX"
+  "start": "Los Angeles, CA",
+  "finish": "New York, NY"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `start` | string | Yes | Starting point (free-text US address or `City, ST`) |
+| `finish` | string | Yes | Destination (free-text US address or `City, ST`) |
 
 **Response `200 OK`**
 
 ```json
 {
   "route": {
-    "type": "FeatureCollection",
-    "features": [
-      {
-        "type": "Feature",
-        "geometry": {
-          "type": "LineString",
-          "coordinates": [[...], ...]
-        },
-        "properties": {
-          "distance_m": 1234567.8,
-          "duration_s": 43200.0
+    "distance_miles": 2793.6,
+    "duration_minutes": 2991.5,
+    "geometry": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [-118.243685, 34.052234],
+              [-118.243542, 34.052516],
+              "..."
+            ]
+          },
+          "properties": {
+            "distance_miles": 2793.56,
+            "duration_s": 179491.4
+          }
         }
-      }
-    ]
+      ]
+    }
+  },
+  "fuel": {
+    "mpg": 10,
+    "max_range_miles": 500,
+    "total_gallons": 233.72,
+    "total_cost_usd": 722.24
   },
   "fuel_stops": [
     {
-      "name": "Pilot Travel Center",
-      "city": "Memphis",
-      "state": "TN",
-      "latitude": 35.149,
-      "longitude": -90.048,
-      "retail_price_usd": 3.45,
-      "gallons": 32.5,
-      "cost_usd": 112.13
+      "sequence": 1,
+      "station_name": "TA Parowan Travel Center",
+      "city": "Parowan",
+      "state": "UT",
+      "latitude": 37.842198,
+      "longitude": -112.828,
+      "distance_from_start_miles": 456.3,
+      "price_per_gallon": 3.70566666,
+      "gallons_purchased": 9.39,
+      "cost_usd": 34.8
+    },
+    {
+      "sequence": 2,
+      "station_name": "FLYING J TRAVEL PLAZA #773",
+      "city": "Richfield",
+      "state": "UT",
+      "latitude": 38.769428,
+      "longitude": -112.084706,
+      "distance_from_start_miles": 550.2,
+      "price_per_gallon": 3.699,
+      "gallons_purchased": 1.78,
+      "cost_usd": 6.58
     }
-  ],
-  "total_gallons": 87.3,
-  "total_fuel_cost_usd": 301.09
+  ]
 }
 ```
 
-**Error envelope** (all 4xx / 5xx responses)
+**Fuel Stop Object Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `sequence` | integer | 1-based stop number along the route |
+| `station_name` | string | Retail fuel station name |
+| `city` | string | City location of station |
+| `state` | string | Two-letter state code (e.g. `UT`) |
+| `latitude` | float | Decimal latitude of the station |
+| `longitude` | float | Decimal longitude of the station |
+| `distance_from_start_miles` | float | Cumulative driving distance from trip start (miles) |
+| `price_per_gallon` | float | Retail price per gallon in USD |
+| `gallons_purchased` | float | Volume of fuel purchased at this stop |
+| `cost_usd` | float | Total cost of fuel purchased at this stop |
+
+**Error Envelope** (all 4xx / 5xx responses)
 
 ```json
 {
@@ -207,6 +253,16 @@ The API is available at `http://localhost:8000/api/v1/`.
   }
 }
 ```
+
+| HTTP Status | Error Code | Condition |
+|---|---|---|
+| `400 Bad Request` | `bad_request` | Missing or whitespace-only `start` or `finish` |
+| `400 Bad Request` | `location_not_found` | Geocoding service could not resolve the given location |
+| `400 Bad Request` | `location_outside_us` | Location resolves to coordinates outside the CONUS bounding box |
+| `404 Not Found` | `no_route_found` | OSRM cannot construct a driving route between the coordinates |
+| `422 Unprocessable Entity` | `infeasible_route` | Station gap exceeds the vehicle's 500-mile tank range |
+| `502 Bad Gateway` | `routing_unreachable` | OSRM routing service is unreachable or network error |
+| `504 Gateway Timeout` | `routing_timeout` | OSRM routing service timed out |
 
 ---
 
@@ -234,8 +290,7 @@ pytest -m "not django_db"
 pytest --cov=apps --cov-report=html
 ```
 
-Expected baseline: **53 passed, 4 xfailed** (the 4 xfails are end-to-end
-`TestRouteEndpointSuccess` tests that require a live OSRM connection).
+Expected baseline: **70 passed, 0 xfailed** across the full test suite.
 
 ---
 
@@ -264,7 +319,7 @@ Expected baseline: **53 passed, 4 xfailed** (the 4 xfails are end-to-end
 - [x] Implement geocoding helpers with caching (`apps.routing.geocoding`)
 - [x] Implement spatial route-matching with KD-tree (`apps.optimizer.spatial`)
 - [x] Implement DP solver (`apps.optimizer.solver.optimise`)
-- [ ] Wire everything together in `RouteView.post()`
-- [ ] Add integration tests with OSRM stub responses
+- [x] Wire everything together in `RouteView.post()` (`apps.fuel.views`)
+- [x] Add integration tests with OSRM stub responses (`tests/test_api.py`)
 - [ ] Consider PostGIS for native geospatial queries
 - [ ] Add request-level geocoding cache persistence across restarts (currently in-memory only for user queries)
