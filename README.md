@@ -240,10 +240,12 @@ pytest --cov=apps --cov-report=html
 | 2 | **500-mile range**, **10 mpg** → 50-gallon tank | Configurable via env vars |
 | 3 | Fuel-stop selection is a **shortest-path / DP problem** over a station DAG, not greedy "cheapest in range" | Greedy is not globally optimal when cheap stations appear slightly out of order along the route |
 | 4 | Station-to-route matching uses a **spatial index** (KD-tree or R-tree) over the OSRM geometry, with a configurable corridor width (default **10 miles ≈ 16,093.4 m**) | Avoids scanning all 8 k+ stations per request |
-| 5 | **OSRM** responses are cached in Redis keyed by SHA-256(origin\|destination), TTL 6 h | OSRM calls are expensive; most repeated city-pairs reuse the same route |
+| 5 | **OSRM** responses are cached via Django's cache framework (`LocMemCache` default, opt-in Redis) keyed by rounded coordinate string `osrm:route:{start_lat},{start_lon}:{end_lat},{end_lon}` (~4 decimal places / 11 m precision), TTL 6 h | Prevents duplicate OSRM calls; rounding avoids cache misses on trivial float noise while LocMem requires no external service |
 | 6 | Geocoding the CSV is an **offline, pre-ingestion step** | Nominatim rate-limits to 1 req/s; 8 k records ≈ 2.5 h offline, unacceptable on the hot path |
 | 7 | The API accepts free-text location strings; **geocoding the user's start/finish** happens on the hot path (Nominatim or a commercial geocoder) | Adds latency — a future caching layer is noted in the roadmap |
 | 8 | No authentication on the API | Assumed internal / demo use; add token auth before any public exposure |
+| 9 | Geographic coverage is restricted to the **contiguous United States (CONUS)** via bounding-box geofence (`24.0°N–50.0°N`, `125.0°W–66.0°W`) | Alaska, Hawaii, and offshore territories are excluded since highway road networks and 500-mile truck range apply to continental driving routes |
+| 10 | **External call budget**: The assessment constraint ("one call ideal, two-three acceptable") applies specifically to the routing/mapping API | A cache-cold request makes up to 2 Nominatim geocoding calls (start + finish) plus exactly 1 OSRM routing call (3 external calls total, but only 1 against the routing API budget); both layers use look-aside caching to reduce steady-state external calls to 0 |
 
 ---
 

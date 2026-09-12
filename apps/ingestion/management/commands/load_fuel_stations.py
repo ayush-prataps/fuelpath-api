@@ -44,6 +44,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from geopy.geocoders import Nominatim
 
+from apps.routing.geocoding import (
+    geocode_batch_pairs,
+    load_geocache_file,
+    save_geocache_file,
+)
+
 logger = logging.getLogger(__name__)
 
 # Canadian province codes present in the source data — filtered out.
@@ -271,15 +277,11 @@ class Command(BaseCommand):
     @staticmethod
     def _load_geocache(path: Path) -> dict[str, dict | None]:
         """Load the on-disk JSON geocode cache. Returns {} if not found."""
-        if path.exists():
-            with path.open(encoding="utf-8") as fh:
-                return json.load(fh)
-        return {}
+        return load_geocache_file(path)
 
     @staticmethod
     def _save_geocache(path: Path, cache: dict) -> None:
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(cache, fh, indent=2, sort_keys=True)
+        save_geocache_file(path, cache)
 
     def _geocode_pairs(
         self,
@@ -302,52 +304,16 @@ class Command(BaseCommand):
             settings, "GEOCODER_USER_AGENT", "fuelpath-ingestion/1.0"
         )
         geolocator = Nominatim(user_agent=user_agent)
+        return geocode_batch_pairs(
+            pairs=pairs,
+            cache=cache,
+            delay=delay,
+            cache_path=cache_path,
+            flush_every=flush_every,
+            geolocator=geolocator,
+            stdout_write=self.stdout.write,
+        )
 
-        stats: dict[str, Any] = {
-            "hits": 0,
-            "new": 0,
-            "failed": 0,
-            "failed_pairs": [],
-        }
-
-        uncached = [p for p in sorted(pairs) if f"{p[0]},{p[1]}" not in cache]
-        stats["hits"] = len(pairs) - len(uncached)
-        total_uncached = len(uncached)
-
-        for i, (city, state) in enumerate(uncached, start=1):
-            key = f"{city},{state}"
-            query = f"{city}, {state}, USA"
-            try:
-                location = geolocator.geocode(query, timeout=10)
-                if location:
-                    cache[key] = {
-                        "latitude": location.latitude,
-                        "longitude": location.longitude,
-                    }
-                    stats["new"] += 1
-                    logger.debug("Geocoded %s → (%.5f, %.5f)", key, location.latitude, location.longitude)
-                else:
-                    cache[key] = None  # Mark as attempted but not found
-                    stats["failed"] += 1
-                    stats["failed_pairs"].append((city, state))
-                    logger.warning("Nominatim returned no result for: %s", query)
-            except Exception as exc:  # noqa: BLE001
-                # Don't abort the whole command on a single geocoding failure
-                cache[key] = None
-                stats["failed"] += 1
-                stats["failed_pairs"].append((city, state))
-                logger.warning("Geocoding error for %s: %s", query, exc)
-
-            # Periodic flush — crash-safe checkpoint
-            if cache_path and i % flush_every == 0:
-                self._save_geocache(cache_path, cache)
-                self.stdout.write(
-                    f"  [{i}/{total_uncached}] geocoded … last: {key}"
-                )
-
-            time.sleep(delay)
-
-        return cache, stats
 
     # ------------------------------------------------------------------
     # Database upsert
